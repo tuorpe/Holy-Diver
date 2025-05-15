@@ -24,15 +24,18 @@ using namespace std;
 /****************************************************/
 // Game settings:
 /****************************************************/
-//Enemies on map
-const int ENEMY_COUNT = 5;
 const int MAX_BATTERY = 100;
-const int POBABILITY_FOR_IDLE_ENEMY = 50;
 const int MAX_HEALTH = 100;
 const int MAX_OXYGEN = 100;
 const int INIT_LIVES = 3;
 const int OXYGEN_DECREASE_RATE = 2;
 const int BATTERY_DECREASE_RATE = 5;
+
+//Points
+const int BATTERY_POINTS = 1;
+const int OXYGEN_POINTS = 1;
+const int COIN_POINTS = 10;
+const string g_levels[] = { "level_0.map", "level_1.map", "level_1.map" };
 
 
 /****************************************************/
@@ -41,13 +44,16 @@ const int BATTERY_DECREASE_RATE = 5;
 void start_splash_screen(void);
 bool startup_routines();
 void quit_routines(void);
-bool load_level(string filepath); // a routine to load a level map from a file
+char** load_level(string filepath); // a routine to load a level map from a file
 int read_input(char*);
-void update_state(char);  // assuming only one input char (key press) at most at a time ("turn-based" execution flow)
-void render_screen(void);
+//void update_state(char);  // assuming only one input char (key press) at most at a time ("turn-based" execution flow)
+//void render_screen(void);
 void delete_map(void);
 void gameOver(void);
-void resetGame(void);
+//void resetGame(void);
+//void parse_cells(void);
+bool screenLevelFinished(void);
+
 
 /****************************************************/
 // declaring classes:
@@ -55,14 +61,14 @@ void resetGame(void);
 class World;
 class PlayerClass;
 class GameController;
+class Item;
 
 
 /****************************************************/
 // global variables:
 /****************************************************/
-char** map;// pointer pointer equals to array of arrays = 2-dimensional array of chars
-size_t map_x, map_y;
-World* g_world = nullptr;
+//char** map;// pointer pointer equals to array of arrays = 2-dimensional array of chars
+//size_t map_x, map_y;
 GameController* g_gameController = nullptr;
 
 // above is virtually identical, as a variable, compared to for example:
@@ -79,9 +85,8 @@ typedef struct Player {
 } Player; // named as "Player", a struct containing relevant player data is declared
 
 Player player_data = { MAX_HEALTH, MAX_OXYGEN, INIT_LIVES, 0, 0}; // initialize player data
-
-string levelName;
 bool gameRunning;
+int startCoinAmount;
 
 /****************************************************************
 ***			Enums											  ***
@@ -99,25 +104,14 @@ typedef enum
 
 typedef enum
 {
-	ammo_cell,
-	health_cell,
 	oxygen_cell,
+	battery_cell,
 	empty_cell,
 	wall_cell,
 	enemy_cell,
 	player_cell,
+	coin_cell,
 }Map_CellTypes;
-
-/****************************************************************
-***			Structs											  ***
-*****************************************************************/
-
-typedef struct
-{
-	int points;
-	bool isAmmo;
-	int value;
-}ItemData;
 
 
 
@@ -206,6 +200,8 @@ class World
 private:
 	char** p_map;
 	char** p_playerMap;	// Map of what player sees
+	int map_x = 0;	// Map width
+	int map_y = 0;	// Map height
 	void initPlayerMap(bool keepOld = false)
 	{
 		// Create player's map where he cannot see anything at first
@@ -243,7 +239,14 @@ public:
 		}
 		delete[] p_playerMap;	// Free memory for player map
 	}
-
+	void setMap(char** mapSource, Vector2 size)
+	{
+		p_map = mapSource;	// Set map
+		map_x = size.x;			// Set map width
+		map_y = size.y;			// Set map height
+		p_playerMap = new char* [map_x];	// Allocate memory for player map
+		initPlayerMap();	// Initialize player map
+	}
 	string printMap()
 	{
 		string map;
@@ -289,7 +292,10 @@ public:
 			putOnMap(from, empty_cell);	// Remove item from old position
 			putOnMap(to, item);			// Put item on map
 			if (item == player_cell)	//Mark new cell as visible to player.
+			{
+				showCell(from);
 				showCell(to);
+			}
 			return true;				// Item moved
 		}
 		return false;	// Item not moved
@@ -301,31 +307,24 @@ public:
 
 	void putOnMap(Vector2 position, Map_CellTypes item)
 	{
+		char p_item = 'o';
 		// Put thing on map
 		switch (item)
 		{
-		case ammo_cell:
-			p_map[position.y][position.x] = 'a';
-			break;
-		case health_cell:
-			p_map[position.y][position.x] = 'h';
-			break;
 		case empty_cell:
-			p_map[position.y][position.x] = 'o';
-			break;
-		case oxygen_cell:
-			p_map[position.y][position.x] = 'O';
+			p_item = 'o';
 			break;
 		case wall_cell:
-			p_map[position.y][position.x] = 'x';
+			p_item = 'x';
 			break;
 		case enemy_cell:
-			p_map[position.y][position.x] = 'M';
+			p_item = 'M';
 			break;
 		case player_cell:
-			p_map[position.y][position.x] = 'P';
+			p_item = 'P';
 			break;
 		}
+		p_map[position.y][position.x] = p_item;
 	}
 
 	void showCell(Vector2 position, Vector2 direction = Vector2::zero())
@@ -363,7 +362,7 @@ class Character
 			p_cellType = cellType;	// Set cell type
 		}
 
-		Vector2 getPosition()
+		Vector2 GetPosition()
 		{ 
 			return p_position;
 		}
@@ -468,6 +467,11 @@ public:
 			return p_batterySOC;	// Get battery
 		}
 
+		void resetBattery()
+		{
+			p_batterySOC = MAX_BATTERY;	// Reset battery
+		}
+
 		bool receiveDamage(int damage)
 		{
 			if (p_hp > damage)
@@ -505,23 +509,6 @@ public:
 				p_oxygen = oxygen;
 		}
 
-		void useLife()
-		{
-			if (p_lives)
-				p_lives--;
-		}
-
-		void setLives(int lives)
-		{
-			if(lives > 0)
-				p_lives = lives;
-		}
-
-		int getLives()
-		{
-			return p_lives;
-		}
-
 		int getHealth()
 		{
 			return p_hp;
@@ -532,6 +519,24 @@ public:
 			if(health > 0)
 				p_hp = health;
 		}
+
+		void useLife()
+		{
+			if (p_lives)
+				p_lives--;
+		}
+
+		void setLives(int lives)
+		{
+			if (lives > 0)
+				p_lives = lives;
+		}
+
+		int getLives()
+		{
+			return p_lives;
+		}
+
 
 		bool isAlive()
 		{
@@ -555,10 +560,6 @@ class Enemy:public Character
 			p_position = location;
 			p_cellType = enemy_cell;
 		};
-		Enemy(Enemy& copy)
-		{
-			memcpy(this, &copy, sizeof(Enemy));
-		}
 		~Enemy()
 		{
 			//Destructor
@@ -601,26 +602,34 @@ public:
 class Item
 {
 	private:
-		ItemData itemData;
+		int points;
+		Map_CellTypes type;
 		Vector2 position;
 	public:
-		Item(Vector2 location, int points, bool isAmmo, int value)
+		Item(Vector2 location, Map_CellTypes type, int points): type(type), position(location)
 		{
 			//Constructor
-			itemData = { points, isAmmo, value };	// Initialize item data
-			position = location;	// Set position
+			if (points >= 0)
+				this->points = points;
+			else
+				this->points = 0;
 		}
 		~Item()
 		{
 			//Destructor
 		}
-		Item(Item& copy)
+		int GetPoints()
 		{
-			memcpy(this, &copy, sizeof(Item));
+			return points;
 		}
-		ItemData Grab()
+		Map_CellTypes GetType()
 		{
-			//Grab item
+			return type;
+		}
+
+		Vector2 GetPosition()
+		{
+			return position;
 		}
 		/*void putOnMap(World& map)
 		{
@@ -635,12 +644,26 @@ private:
 	PlayerClass* p_player;
 	vector<Enemy*> p_enemies;	// List of enemies
 	vector<Item*> p_items;		// List of items
+	int p_score;
+	Map_CellTypes p_foundItem;
+	int p_currentLevelIndex;
+	int p_startCoinAmount;
+	template<typename T> 
+	bool isAtPlayerPosition(const T& item)
+	{
+		// Check if position is same as player position
+		return p_player->GetPosition() == item->GetPosition();
+	}
 public:
 	GameController()
 	{
 		// Constructor
 		p_world = nullptr;
 		p_player = nullptr;
+		p_score = 0;	// Initialize score
+		p_foundItem = empty_cell;	// Initialize found item
+		p_startCoinAmount = 0;	// Initialize start coin amount
+		p_currentLevelIndex = 0;	// Initialize current level index
 	}
 
 	GameController(World* world)
@@ -648,6 +671,10 @@ public:
 		// Constructor
 		p_world = world;
 		p_player = nullptr;
+		p_score = 0;	// Initialize score
+		p_foundItem = empty_cell;	// Initialize found item
+		p_startCoinAmount = 0;	// Initialize start coin amount
+		p_currentLevelIndex = 0;	// Initialize current level index
 	}
 
 	~GameController()
@@ -657,26 +684,48 @@ public:
 		{
 			delete enemy;	// Free memory for each enemy
 		}
+		p_enemies.clear();
 		for (Item* item : p_items)
 		{
 			delete item;	// Free memory for each item
 		}
+		p_items.clear();
+		delete p_player;	// Free memory for player
+		delete p_world;
 		//cout << "GameController destroyed" << endl;
 	}
 
 	void addEnemy(Enemy* enemy)
 	{
 		p_enemies.push_back(enemy);	// Add enemy to the list
-		p_world->putOnMap(enemy->getPosition(), enemy_cell);	// Put enemy on map
+		//p_world->putOnMap(enemy->getPosition(), enemy_cell);	// Put enemy on map
+	}
+
+	int getAmount(Map_CellTypes type)
+	{
+		int amount = 0;
+		for (Item* item : p_items)
+		{
+			if (item->GetType() == type)
+				amount++;
+		}
+		return amount;
 	}
 
 	void addPlayer(Player player)
 	{
 		// Add player to the world
 		p_player = new PlayerClass(player_data, p_world, MAX_BATTERY);	// Create player
-		Vector2 player_location = p_player->getPosition();	// Get player's location
+		Vector2 player_location = p_player->GetPosition();	// Get player's location
 		p_world->putOnMap(player_location, player_cell);	// Put player on map
 		p_world->showCell(player_location);
+	}
+
+	void addItem(Item* item)
+	{
+		p_items.push_back(item);
+		if (item->GetType() == coin_cell)
+			p_startCoinAmount++;	// Increase start coin amount
 	}
 
 	void updatePlayer(Vector2 movement)
@@ -685,6 +734,7 @@ public:
 			return;
 		p_player->move(movement);
 	}
+
 	void resetPLayer()
 	{
 		p_player->setHealth(MAX_HEALTH);	// Reset player health
@@ -692,6 +742,7 @@ public:
 		p_player->setLives(INIT_LIVES);	// Reset player lives
 		p_player->setPosition(Vector2(player_data.x, player_data.y));	// Reset player position
 	}
+
 	void updateEnemies()
 	{
 		for (Enemy* enemy : p_enemies)
@@ -699,32 +750,65 @@ public:
 			enemy->move(Vector2::one()); // Move enemy by vector one. Indicating random movement
 		}
 	}
-
-	void CheckPlayerHit()
+	
+	Map_CellTypes getFoundItem()
 	{
-		// Check if player hit an enemy
-		for (Enemy* enemy : p_enemies)
-		{
-			if (enemy->getPosition() == p_player->getPosition())	// Check if player hit an enemy
-			{
-				enemy->setActive();	// Set enemy active
-				p_player->receiveDamage(enemy->doDamage());	// Hurt player
-			}
-		}
+		Map_CellTypes item = p_foundItem;	// Get found item
+		p_foundItem = empty_cell;	// Reset found item
+		return item;	// Return found item
 	}
+	
+    void CheckPlayerHit()
+    {
+        // Check if player hit an enemy
+		auto hitEnemy = find_if(p_enemies.begin(), p_enemies.end(), [this](Enemy* enemy) 
+		{
+			return isAtPlayerPosition(enemy);
+		});
+        if(hitEnemy != p_enemies.end())
+        {
+			if ((*hitEnemy)->GetPosition() == p_player->GetPosition()) // Check if player hit an enemy
+            {
+				(*hitEnemy)->setActive(); // Set enemy active
+                p_player->receiveDamage((*hitEnemy)->doDamage()); // Hurt player
+            }
+        }
+        // Check items if any of them match the playe's position
+        auto foundItem = find_if(p_items.begin(), p_items.end(), [this](Item* item) 
+		{
+            return isAtPlayerPosition(item);
+        });
+
+        if (foundItem != p_items.end()) // Check if player hit an item
+        {
+            if ((*foundItem)->GetType() == battery_cell) // Check if item is a battery
+                p_player->resetBattery();
+            else if ((*foundItem)->GetType() == oxygen_cell) // Check if item is oxygen
+                p_player->setOxygen(MAX_OXYGEN);
+            else if ((*foundItem)->GetType() == coin_cell) // Check if item is a coin
+                p_score += COIN_POINTS; // Add coin points to score
+
+            p_score += (*foundItem)->GetPoints();	// Add points to score
+            p_foundItem = (*foundItem)->GetType();  // Set found item to be shown on screen
+            delete (*foundItem);					// Free memory for item
+            p_items.erase(foundItem);				// Remove item from list
+        }
+    }
+	
 	PlayerClass* getPlayer()
 	{
 		return p_player;
 	}
+	
 	void useFlashLight(Directions direction)
 	{
 		if (!p_player->useBattery())	// Try to use flashlight battery
 			return;
-		Vector2 lightCellPos = p_player->getPosition() + Character::getMovementVector(direction);
-		g_world->showCell(lightCellPos);	// Show cell to player
+		Vector2 lightCellPos = p_player->GetPosition() + Character::getMovementVector(direction);
+		p_world->showCell(lightCellPos);	// Show cell to player
 		for (Enemy* enemy : p_enemies)		//Activate enemy if player sees it
 		{
-			if (enemy->getPosition() == lightCellPos)	// Only 1 enemy can be in one place so if found -> return
+			if (enemy->GetPosition() == lightCellPos)	// Only 1 enemy can be in one place so if found -> return
 			{
 				enemy->setActive();
 				return;
@@ -732,14 +816,144 @@ public:
 		}
 	}
 
+	int getScore()
+	{
+		return p_score;	// Get score
+	}
+
 	void CheckPlayerAlive()
 	{
-		if (p_player->isAlive())
-			return;	// Player is alive
-		else
+		if (p_player->isAlive() == false)
+			delete p_player;
+	}
+
+	bool CheckLevelFinished()
+	{
+		if (getAmount(coin_cell) <= 0)
+			return true;
+		return false;
+	}
+
+	void loadNextLevel()
+	{
+		string levelName;
+		delete p_world;				// Delete old world
+		delete_map();				// Delete old map
+		p_enemies.clear();			// Forget old enemies
+		p_items.clear();			// Forget old items
+		p_currentLevelIndex++;
+		if (p_currentLevelIndex >= sizeof(g_levels) / sizeof(g_levels[0]))
 		{
-			delete p_player;	// Free memory for player
+			p_currentLevelIndex = 0;
+		}
+		levelName = g_levels[p_currentLevelIndex];
+		load_level(levelName);
+		p_world = new World(map);	// Create new world
+		parse_cells();
+		render_screen();
+	}
+	/****************************************************************
+	 *
+	 * FUNCTION parse_enemies()
+	 *
+	 * function finds enemies on maps and adds them to the world
+	 *
+	 * **************************************************************/
+	void parse_cells()
+	{
+		IdleEnemy* p_idleEnemy;
+		Enemy* p_enemy;
+		Item* p_item;
+		p_startCoinAmount = 0;
+		if (map == nullptr)	// World is not initialized yet?
 			return;
+		for (int i = 0; i < map_y; i++)
+		{
+			for (int j = 0; j < map_x; j++)
+			{
+				Vector2 pos = Vector2(j, i);
+				switch (p_world->getCell(pos))
+				{
+				case 'm':	// Immobile enemy
+					p_idleEnemy = new IdleEnemy(pos, p_world);
+					addEnemy(p_idleEnemy);
+					break;
+				case 'M':	// Mobile enemy
+					p_enemy = new Enemy(pos, p_world);
+					addEnemy(p_enemy);
+					break;
+				case 'b':	// Battery
+					p_item = new Item(pos, battery_cell, BATTERY_POINTS);
+					addItem(p_item);
+					break;
+				case 'O':	// Oxygen
+					p_item = new Item(pos, oxygen_cell, OXYGEN_POINTS);
+					addItem(p_item);
+					break;
+				case 'c':	// Coin
+					p_item = new Item(pos, coin_cell, COIN_POINTS);
+					addItem(p_item);
+					break;
+				case 'P':
+					p_player->setPosition(pos);
+					break;
+				default:
+
+					break;
+				}
+			}
+		}
+	}
+	
+	void resetGame()
+	{
+		delete_map();
+		load_level(g_levels[p_currentLevelIndex]);
+		//g_world->resetPlayerMap();
+		g_gameController->resetPLayer();
+	}
+
+	/****************************************************************
+	 *
+	 * METHOD update_state
+	 *
+	 * update game state (player, enemies, artefacts, inventories, health, whatnot)
+	 * this is a collective entry point to all updates - feel free to divide these many tasks into separate subroutines
+	 *
+	 * **************************************************************/
+	void update_state(char input)
+	{
+		switch (input)
+		{
+		case 'w':	// Go up
+			updatePlayer(Vector2::up());
+			break;
+		case 'a':	// Go left
+			updatePlayer(Vector2::left());
+			break;
+		case 's':	// Go down
+			updatePlayer(Vector2::down());
+			break;
+		case 'd':	// Go right
+			updatePlayer(Vector2::right());
+			break;
+		case 'i':
+			useFlashLight(UP);
+			break;
+		case 'k':
+			useFlashLight(DOWN);
+			break;
+		case 'j':
+			useFlashLight(LEFT);
+			break;
+		case 'l':
+			useFlashLight(RIGHT);
+			break;
+		case 'r':	// Reset level
+			resetGame();
+			break;
+		default:
+			break;
 		}
 	}
 
@@ -748,6 +962,43 @@ public:
 		updateEnemies();	// Update enemies position/Tick
 		CheckPlayerHit();	// Check if player hit an enemy
 		CheckPlayerAlive();
+
+	}
+
+	/*****************************************************************
+ *
+ * FUNCTION render_screen
+ *
+ * this function prints out all visuals of the game (typically after each time game state updated)
+ *
+ * **************************************************************/
+	void render_screen(void)
+	{
+		if (!gameRunning)
+			return;
+		system("cls");
+		cout << "PLAYER:" << endl << "Health:\t" << p_player->getHealth() << '%' << "\tOxygen : " << p_player->getOxygen() << endl;
+		cout << "Battery: " << p_player->getBattery() << '%' << endl;
+		cout << "Coins: " << getAmount(coin_cell) << " / " << p_startCoinAmount << "\tScore: " << g_gameController->getScore() << " pts" << endl;
+		Vector2 location = p_player->GetPosition();
+		cout << "Player coordinates: x: " << location.x << " y: " << location.y << endl;
+		cout << p_world->printMap() << endl;
+		Map_CellTypes foundItem = getFoundItem();
+		string type = "";
+		switch (foundItem)
+		{
+		case coin_cell:
+			type = "Coin";
+			break;
+		case battery_cell:
+			type = "Battery";
+			break;
+		case oxygen_cell:
+			type = "Battery";
+			break;
+		}
+		if (type != "")
+			cout << "Found an item: " << type << endl;
 	}
 
 };
@@ -771,7 +1022,7 @@ int main(void)
 		char input;
 		Sleep(2000);
 		system("cls");
-		render_screen();
+		g_gameController->render_screen();
 		// IMPORTANT NOTE: do not exit program without cleanup: freeing allocated dynamic memory etc
 		while (true) // infinite loop, should end with "break" in case of game over or user quitting etc.
 		{
@@ -782,10 +1033,22 @@ int main(void)
 			}
 			input = '\0'; // make sure input resetted each cycle
 			if (0 > read_input(&input)) break; // exit loop in case input reader returns negative (e.g. user selected "quit")
-			system("cls");
-			update_state(input);
+			g_gameController->update_state(input);
 			g_gameController->run();	// Update game state
-			render_screen();
+			g_gameController->render_screen();
+			if (g_gameController->CheckLevelFinished())
+			{
+				if (!screenLevelFinished()) // Show that level is finished and ask if player wants to continue
+				{
+					break; // Quit normal play loop
+				}
+				//Load next level
+				else
+				{
+					g_gameController->loadNextLevel();	// Load next level
+				}
+
+			}
 		}
 
 		quit_routines(); // cleanup, bye-bye messages, game save and whatnot
@@ -802,7 +1065,7 @@ int main(void)
  * First weekly home assignment is to be implemented mostly here.
  *
  * **************************************************************/
-bool load_level(string filepath)
+char** load_level(string filepath)
 {
 	// steps in short:
 	// 1) locate, check and open file, if failure, return value indicating error (and check on the calling side)
@@ -835,12 +1098,12 @@ bool load_level(string filepath)
 		map = new char* [cols];		//Assuming map is square
 		for(int i = 0; i < cols; i++)	// Allocates map array and fills with data from the file
 		{
-			size_t p_pos = line.find_first_of("P");
+			/*size_t p_pos = line.find_first_of("P");
 			if (p_pos != -1)	//Found player -> Get coordinates
 			{
 				player_data.x = p_pos;
 				player_data.y = i;
-			}
+			}*/
 			map[i] = new char[cols +1]; 
 			for (int j = 0; j < cols; j++)
 			{
@@ -878,7 +1141,7 @@ int read_input(char* input)
 {
 	cout << ">>>";	// simple prompt
 	try {
-		cin >> *input;
+		*input = getchar();
 	}
 	catch (...) {
 		return -1; // failure
@@ -889,62 +1152,6 @@ int read_input(char* input)
 	return 0; // default return, no errors
 }
 
-/****************************************************************
- *
- * FUNCTION update_state
- *
- * update game state (player, enemies, artefacts, inventories, health, whatnot)
- * this is a collective entry point to all updates - feel free to divide these many tasks into separate subroutines
- *
- * **************************************************************/
-void update_state(char input)
-{
-	switch (input)
-	{
-	case 'w':	// Go up
-		g_gameController->updatePlayer(Vector2::up());
-		break;
-	case 'a':	// Go left
-		g_gameController->updatePlayer(Vector2::left());
-		break;
-	case 's':	// Go down
-		g_gameController->updatePlayer(Vector2::down());
-		break;
-	case 'd':	// Go right
-		g_gameController->updatePlayer(Vector2::right());
-		break;
-	case 'i':
-		g_gameController->useFlashLight(UP);
-		break;
-	case 'k':
-		g_gameController->useFlashLight(DOWN);
-		break;
-	case 'j':
-		g_gameController->useFlashLight(LEFT);
-		break;
-	case 'l':
-		g_gameController->useFlashLight(RIGHT);
-		break;
-	case 'r':	// Reset level
-		resetGame();
-		break;
-	default:
-		break;
-	}
-}
-
-/*****************************************************************
-**	FUNCTION resetGame											**
-**	This reload the map and reset game							**
-******************************************************************/
-void resetGame()
-{
-	delete_map();
-	load_level(levelName);
-	g_world->resetPlayerMap();
-	g_gameController->resetPLayer();
-}
-
 /*****************************************************************
 **	FUNCTION gameOver											**
 **	This will signal running game to stop						**
@@ -953,24 +1160,33 @@ void gameOver()
 {
 	gameRunning = false;
 }
-/*****************************************************************
- *
- * FUNCTION render_screen
- *
- * this function prints out all visuals of the game (typically after each time game state updated)
- *
- * **************************************************************/
-void render_screen(void)
+
+/******************************************************************
+** FUNCTION screenLevelFinished									 **
+** This will show that level is finished and ask if player		 **
+** wants to continue. If player press enter, it will return true **
+** If player press q, it will return false.						 **
+*******************************************************************/
+bool screenLevelFinished()
 {
-	if (!gameRunning)
-		return;
-	PlayerClass* player = g_gameController->getPlayer();
-	cout << "PLAYER:" << endl << "Health:\t" << player->getHealth() << "\tOxygen : " << player->getOxygen() << endl;
-	cout << "Lives :\t" << player->getLives() << "\tBattery: " << player->getBattery() << "%" << endl;
-	Vector2 location = player->getPosition();
-	cout << "Player coordinates: x: " << location.x << " y: " << location.y << endl;
-	cout << g_world->printMap() << endl;
+	char input;
+	system("cls");
+	cout << "\tLEVEL FINISHED!" << endl;
+	cout << "\tScore: " << g_gameController->getScore() << endl;
+	while (true)
+	{
+		cout << "\tPress enter to continue" << endl;
+		cout << "\tPress q to quit" << endl;
+		read_input(&input);
+		if (input > 0)
+		{
+			if (input == '\n')
+				return true;
+		}
+		return false;
+	}
 }
+
 
 /****************************************************************
  *
@@ -999,11 +1215,12 @@ void start_splash_screen(void)
  * **************************************************************/
 bool startup_routines()
 {
-	cout << "Name of the level file (default level_0.map): ";
+	cout << "Name of the level file (default go to level 1): ";
+	string levelName;
 	getline(cin, levelName);
 	if (levelName.empty())
 	{
-		levelName = "level_0.map";
+		levelName = g_levels[0];
 	}
 	if (!load_level(levelName))
 	{
@@ -1011,34 +1228,18 @@ bool startup_routines()
 		return false;
 	}
 	//Init world
-	g_world = new World(map);
+	World* world = new World(map);
 	// Add GameController
-	g_gameController = new GameController(g_world);
+	g_gameController = new GameController(world);
 	// Add player
 	g_gameController->addPlayer(player_data);
-	//Add enemies to the world
-	Vector2 enemyLocation;
-	char locationCell;
-	for (int i = 0; i < ENEMY_COUNT; i++)
-	{
-		// Assign random location to enemy
-		do
-		{
-			enemyLocation = Vector2(rand() % (map_x - 1), rand() % (map_y - 1));
-			locationCell = g_world->getCell(enemyLocation);
-		} while (locationCell != 'o');
-		// Set enemy type randomly
-		Enemy* enemy;
-		if((rand() % 100) < POBABILITY_FOR_IDLE_ENEMY)
-			enemy = new IdleEnemy(enemyLocation, g_world);
-		else
-			enemy = new Enemy(enemyLocation, g_world);
-		g_gameController->addEnemy(enemy);
-	}
+	//Add enemies and items to the world
+	g_gameController->parse_cells();
 	gameRunning = true;
 	return true;
 	// For example if memory allocated here... (*)
 }
+
 
 /****************************************************************
  *
@@ -1052,7 +1253,6 @@ void quit_routines(void)
 
 	// (*) ... the memory should be free'ed here at latest.
 	delete_map();
-	delete g_world;
 	delete g_gameController;
 	cout << endl << "BYE! Welcome back soon." << endl;
 }
