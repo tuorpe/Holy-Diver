@@ -1154,7 +1154,7 @@ public:
 			type = "Battery";
 			break;
 		case oxygen_cell:
-			type = "Battery";
+			type = "Oxygen";
 			break;
 		}
 		if (type != "")
