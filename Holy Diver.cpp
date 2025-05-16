@@ -24,6 +24,7 @@ using namespace std;
 /****************************************************/
 // Game settings:
 /****************************************************/
+const string VERSION = "0.02";
 const int MAX_BATTERY = 100;
 const int MAX_HEALTH = 100;
 const int MAX_OXYGEN = 100;
@@ -35,25 +36,7 @@ const int BATTERY_DECREASE_RATE = 5;
 const int BATTERY_POINTS = 1;
 const int OXYGEN_POINTS = 1;
 const int COIN_POINTS = 10;
-const string g_levels[] = { "level_0.map", "level_1.map", "level_1.map" };
-
-
-/****************************************************/
-// declaring functions:
-/****************************************************/
-void start_splash_screen(void);
-bool startup_routines();
-void quit_routines(void);
-char** load_level(string filepath); // a routine to load a level map from a file
-int read_input(char*);
-//void update_state(char);  // assuming only one input char (key press) at most at a time ("turn-based" execution flow)
-//void render_screen(void);
-void delete_map(void);
-void gameOver(void);
-//void resetGame(void);
-//void parse_cells(void);
-bool screenLevelFinished(void);
-
+const string g_levels[] = { "level_0.map", "level_1.map", "level_2.map" };
 
 /****************************************************/
 // declaring classes:
@@ -62,6 +45,22 @@ class World;
 class PlayerClass;
 class GameController;
 class Item;
+/****************************************************/
+// declaring functions:
+/****************************************************/
+void start_splash_screen(void);
+bool startup_routines();
+void quit_routines(void);
+//World* load_level(string filepath); // a routine to load a level map from a file
+int read_input(char*);
+//void update_state(char);  // assuming only one input char (key press) at most at a time ("turn-based" execution flow)
+//void render_screen(void);
+//void delete_map(void);
+void gameOver(void);
+//void resetGame(void);
+//void parse_cells(void);
+bool screenLevelFinished(void);
+
 
 
 /****************************************************/
@@ -86,7 +85,6 @@ typedef struct Player {
 
 Player player_data = { MAX_HEALTH, MAX_OXYGEN, INIT_LIVES, 0, 0}; // initialize player data
 bool gameRunning;
-int startCoinAmount;
 
 /****************************************************************
 ***			Enums											  ***
@@ -200,16 +198,16 @@ class World
 private:
 	char** p_map;
 	char** p_playerMap;	// Map of what player sees
-	int map_x = 0;	// Map width
-	int map_y = 0;	// Map height
+	int p_map_x = 0;	// Map width
+	int p_map_y = 0;	// Map height
 	void initPlayerMap(bool keepOld = false)
 	{
 		// Create player's map where he cannot see anything at first
-		for (int i = 0; i < map_x; i++)
+		for (int i = 0; i < p_map_x; i++)
 		{
 			if (!keepOld)
-				p_playerMap[i] = new char[map_y + 1];	// Allocate memory for each row
-			for (int j = 0; j < map_y; j++)
+				p_playerMap[i] = new char[p_map_y + 1];	// Allocate memory for each row
+			for (int j = 0; j < p_map_y; j++)
 			{
 				p_playerMap[i][j] = 0;	// Initialize to darkness
 			}
@@ -223,17 +221,17 @@ public:
 		p_map = nullptr;	// Initialize map to null
 		p_playerMap = nullptr;	// Initialize player map to null
 	}
-	World(char** mapSource)
+	World(string filename)
 	{
 		// Constructor
-		p_map = mapSource;
-		p_playerMap = new char* [map_x];	// Allocate memory for player map
+		load_level(filename);	// Load level from file
+		p_playerMap = new char* [p_map_x];	// Allocate memory for player map
 		initPlayerMap();
 	}
 	~World()
 	{
 		// Destructor
-		for (int i = 0; i < map_x; i++)
+		for (int i = 0; i < p_map_x; i++)
 		{
 			delete[] p_playerMap[i];	// Free memory for each row
 		}
@@ -242,17 +240,29 @@ public:
 	void setMap(char** mapSource, Vector2 size)
 	{
 		p_map = mapSource;	// Set map
-		map_x = size.x;			// Set map width
-		map_y = size.y;			// Set map height
-		p_playerMap = new char* [map_x];	// Allocate memory for player map
+		p_map_x = size.x;			// Set map width
+		p_map_y = size.y;			// Set map height
+		p_playerMap = new char* [p_map_x];	// Allocate memory for player map
 		initPlayerMap();	// Initialize player map
+	}
+	void delete_map(void)
+	{
+		for (size_t i = 0; i < p_map_y; ++i)
+		{
+			delete[] p_map[i];
+		}
+		delete[] p_map;
+	}
+	Vector2 mapSize()
+	{
+		return Vector2(p_map_x, p_map_y);	// Return map size
 	}
 	string printMap()
 	{
 		string map;
-		for (int i = 0; i < map_x; i++)
+		for (int i = 0; i < p_map_x; i++)
 		{
-			for (int j = 0; j < map_y; j++)
+			for (int j = 0; j < p_map_y; j++)
 			{
 				if (p_map[i][j] == 'P')			// If cell is the player
 					map += 'P';					// Print player
@@ -278,7 +288,7 @@ public:
 	bool canMoveTo(Vector2 location)
 	{
 		// Check if location can be moved into
-		if (location.x < 0 || location.x >= map_x || location.y < 0 || location.y >= map_y)
+		if (location.x < 0 || location.x >= p_map_x || location.y < 0 || location.y >= p_map_y)
 			return false;	// Out of bounds
 		char cellContent = p_map[location.x][location.y];
 		if (cellContent != 'x')
@@ -326,12 +336,75 @@ public:
 		}
 		p_map[position.y][position.x] = p_item;
 	}
-
 	void showCell(Vector2 position, Vector2 direction = Vector2::zero())
 	{
 		Vector2 lightedCell = position + direction;
 		p_playerMap[lightedCell.y][lightedCell.x] = 1;	// Light the cell
 	}
+	/****************************************************************
+	 *
+	 * FUNCTION load_level
+	 *
+	 * Open a map file and load level map from it.
+	 * First weekly home assignment is to be implemented mostly here.
+	 *
+	 * **************************************************************/
+	void load_level(string filepath)
+	{
+		// steps in short:
+		// 1) locate, check and open file, if failure, return value indicating error (and check on the calling side)
+		// 2) read first row, count number of characters. Assuming all maps are rectangular, use this information
+		//    to memory allocation of global "map" (char ** map) pointer.
+		//    Assuming first row contains N characters, then you need to allocate 2D table/array of dimensions N x N
+		//    -> in practice first allocate to "map" an N-long array of (char *) pointers
+		//        and then within a loop allocate an N-long array of chars to each of the previous entries
+		//           -> as a result "map" is a pointer to pointer corresponding a 2D-array sized [N][N]
+		//              and it's each "slot" can be referred to using syntax: map[x][y], each capable of storing a char.
+		// 3) close file
+		// 4) return with success value (e.g. zero when OK, negative if error)
+		// [  5) outside this function, remember to free() allocated memory eventually ]
+		ifstream loaded_map(filepath);
+		//size_t rows, map_x;
+		//If file not found
+		if (!loaded_map)
+		{
+			cout << "Map file not found" << endl;
+			p_map = nullptr;
+		}
+		if (loaded_map.is_open())
+		{
+			string line;
+			getline(loaded_map, line);	// Read first line
+			p_map_x = line.length();		// Get the size of the line
+			if (p_map_x == 0)
+				p_map = nullptr;
+			p_map_y = 1;
+			p_map = new char* [p_map_x];		//Assuming map is square
+			for (int i = 0; i < p_map_x; i++)	// Allocates map array and fills with data from the file
+			{
+				p_map[i] = new char[p_map_x + 1];
+				for (int j = 0; j < p_map_x; j++)
+				{
+					p_map[i][j] = line[j];
+				}
+				p_map[i][p_map_x] = '\0';
+				if (loaded_map.eof())
+					break;
+				//Read new line
+				getline(loaded_map, line);
+				p_map_y++;
+			}
+			/*cout << "Loaded map:" << endl;
+			for (int i = 0; i < cols; i++)
+			{
+				cout << map[i] << endl;
+			}
+			cout << "Player is at: x: " << player_data.x << " y: " << player_data.y << endl;
+			*/
+
+		}
+	}
+
 };
 
 class Character
@@ -369,9 +442,8 @@ class Character
 
 		void setPosition(Vector2 newLocation)
 		{
-			if (newLocation.x < 0 || newLocation.x >= map_x || newLocation.y < 0 || newLocation.y >= map_y) //Check if out of bounds
-				return;
-			p_position = newLocation;
+			if (p_world->canMoveTo(newLocation))	// Check if new location is valid
+				p_position = newLocation;
 		}
 
 		virtual void move(Vector2 movement = Vector2::one())
@@ -380,7 +452,7 @@ class Character
 				movement = getMovementVector(getRandomDirection());	// Get random direction
 			Vector2 newPos = p_position + movement;
 			//Check if out of bounds
-			if (newPos.x <= 0 || newPos.x >= (map_x - 1) || newPos.y <= 0 || newPos.y >= (map_y - 1))
+			if (p_world->canMoveTo(newPos) == false)	// Check if new position is valid
 				return;	// Out of bounds
 			if (p_world->moveOnMap(p_position, newPos, p_cellType))
 				p_position = newPos;	// Move enemy
@@ -416,6 +488,7 @@ class PlayerClass:public Character
 		int p_hp;
 		int p_oxygen;
 		int p_lives;
+		int p_score;
 public:
 		PlayerClass() :Character()
 		{
@@ -447,6 +520,10 @@ public:
 			gameOver();
 		}
 
+		void SetWorld(World* world)
+		{
+			p_world = world;
+		}
 		bool useBattery()
 		{
 			// Use battery
@@ -537,6 +614,22 @@ public:
 			return p_lives;
 		}
 
+		int GetScore()
+		{
+			return p_score;	// Get score
+		}
+
+		void incrementScore(int value)
+		{
+			if (value < 0)
+				return;
+			p_score += value;
+		}
+
+		void resetScore()
+		{
+			p_score = 0;
+		}
 
 		bool isAlive()
 		{
@@ -545,6 +638,15 @@ public:
 			else
 				return false;	// Character is dead
 		}
+		void resetPLayer()
+		{
+			setHealth(MAX_HEALTH);	// Reset player health
+			setOxygen(MAX_OXYGEN);	// Reset player oxygen
+			setLives(INIT_LIVES);	// Reset player lives
+			setPosition(Vector2(player_data.x, player_data.y));	// Reset player position
+			resetScore();
+		}
+
 };
 
 class Enemy:public Character
@@ -644,7 +746,6 @@ private:
 	PlayerClass* p_player;
 	vector<Enemy*> p_enemies;	// List of enemies
 	vector<Item*> p_items;		// List of items
-	int p_score;
 	Map_CellTypes p_foundItem;
 	int p_currentLevelIndex;
 	int p_startCoinAmount;
@@ -660,7 +761,6 @@ public:
 		// Constructor
 		p_world = nullptr;
 		p_player = nullptr;
-		p_score = 0;	// Initialize score
 		p_foundItem = empty_cell;	// Initialize found item
 		p_startCoinAmount = 0;	// Initialize start coin amount
 		p_currentLevelIndex = 0;	// Initialize current level index
@@ -671,7 +771,6 @@ public:
 		// Constructor
 		p_world = world;
 		p_player = nullptr;
-		p_score = 0;	// Initialize score
 		p_foundItem = empty_cell;	// Initialize found item
 		p_startCoinAmount = 0;	// Initialize start coin amount
 		p_currentLevelIndex = 0;	// Initialize current level index
@@ -680,6 +779,17 @@ public:
 	~GameController()
 	{
 		// Destructor
+		ClearMemory();
+		//cout << "GameController destroyed" << endl;
+	}
+
+	void SetWorld(World* world)
+	{
+		p_world = world;
+	}
+
+	void ClearMemory()
+	{
 		for (Enemy* enemy : p_enemies)
 		{
 			delete enemy;	// Free memory for each enemy
@@ -692,9 +802,8 @@ public:
 		p_items.clear();
 		delete p_player;	// Free memory for player
 		delete p_world;
-		//cout << "GameController destroyed" << endl;
-	}
 
+	}
 	void addEnemy(Enemy* enemy)
 	{
 		p_enemies.push_back(enemy);	// Add enemy to the list
@@ -733,14 +842,6 @@ public:
 		if (!p_player->useOxygen())	// Try to use oxygen
 			return;
 		p_player->move(movement);
-	}
-
-	void resetPLayer()
-	{
-		p_player->setHealth(MAX_HEALTH);	// Reset player health
-		p_player->setOxygen(MAX_OXYGEN);	// Reset player oxygen
-		p_player->setLives(INIT_LIVES);	// Reset player lives
-		p_player->setPosition(Vector2(player_data.x, player_data.y));	// Reset player position
 	}
 
 	void updateEnemies()
@@ -785,21 +886,13 @@ public:
                 p_player->resetBattery();
             else if ((*foundItem)->GetType() == oxygen_cell) // Check if item is oxygen
                 p_player->setOxygen(MAX_OXYGEN);
-            else if ((*foundItem)->GetType() == coin_cell) // Check if item is a coin
-                p_score += COIN_POINTS; // Add coin points to score
-
-            p_score += (*foundItem)->GetPoints();	// Add points to score
+			p_player->incrementScore((*foundItem)->GetPoints());
             p_foundItem = (*foundItem)->GetType();  // Set found item to be shown on screen
             delete (*foundItem);					// Free memory for item
             p_items.erase(foundItem);				// Remove item from list
         }
     }
-	
-	PlayerClass* getPlayer()
-	{
-		return p_player;
-	}
-	
+		
 	void useFlashLight(Directions direction)
 	{
 		if (!p_player->useBattery())	// Try to use flashlight battery
@@ -816,15 +909,34 @@ public:
 		}
 	}
 
-	int getScore()
+	int GetScore()
 	{
-		return p_score;	// Get score
+		return p_player->GetScore();
 	}
-
+	
 	void CheckPlayerAlive()
 	{
-		if (p_player->isAlive() == false)
-			delete p_player;
+		if (p_player->isAlive())
+			return;
+		while (true)
+		{
+			system("cls");
+			cout << "\tGAME OVER" << endl << endl;
+			cout << "Your final score: " << p_player->GetScore() << endl << endl;
+			cout << "Press Enter key to restart game" << endl;
+			cout << "Press Q to quit game" << endl;
+			char input;
+			if (read_input(&input) < 0)
+			{
+				gameRunning = false;
+				return;
+			}
+			else if (input == '\n')
+			{
+				ResetGame();
+				return;
+			}
+		}
 	}
 
 	bool CheckLevelFinished()
@@ -838,7 +950,6 @@ public:
 	{
 		string levelName;
 		delete p_world;				// Delete old world
-		delete_map();				// Delete old map
 		p_enemies.clear();			// Forget old enemies
 		p_items.clear();			// Forget old items
 		p_currentLevelIndex++;
@@ -847,10 +958,16 @@ public:
 			p_currentLevelIndex = 0;
 		}
 		levelName = g_levels[p_currentLevelIndex];
-		load_level(levelName);
-		p_world = new World(map);	// Create new world
+		p_world = new World(levelName);	// Create new world
+		p_player->SetWorld(p_world);	// Set new world information for player
 		parse_cells();
 		render_screen();
+	}
+	
+	void ResetGame()
+	{
+		ClearMemory();
+		startup_routines();
 	}
 	/****************************************************************
 	 *
@@ -865,11 +982,11 @@ public:
 		Enemy* p_enemy;
 		Item* p_item;
 		p_startCoinAmount = 0;
-		if (map == nullptr)	// World is not initialized yet?
-			return;
-		for (int i = 0; i < map_y; i++)
+		Vector2 map_size = p_world->mapSize();
+		// Loop through the map and find all items and enemies
+		for (int i = 0; i < map_size.y; i++)
 		{
-			for (int j = 0; j < map_x; j++)
+			for (int j = 0; j < map_size.x; j++)
 			{
 				Vector2 pos = Vector2(j, i);
 				switch (p_world->getCell(pos))
@@ -904,13 +1021,56 @@ public:
 			}
 		}
 	}
-	
-	void resetGame()
+
+	void exit()
 	{
-		delete_map();
-		load_level(g_levels[p_currentLevelIndex]);
-		//g_world->resetPlayerMap();
-		g_gameController->resetPLayer();
+		while (true)
+		{
+			system("cls");
+			cout << "\tExit" << endl;
+			int coins = getAmount(coin_cell);
+			cout << "You found " << coins << " coins out of " << p_startCoinAmount << endl;
+			cout << "Press:" << endl;
+			bool canContinue = (float)coins / (float)p_startCoinAmount < 0.5;
+			if (canContinue)
+			{
+				cout << "D: Move to next level but you will loose all your items" << endl;
+			}
+			cout << "C: Continue playing" << endl;
+			cout << "R: Retry level" << endl;
+			cout << "Q: Quit game" << endl;
+			char input;
+			if (read_input(&input) < 0)
+			{
+				gameRunning = false;
+				return;
+			}
+			switch (input)
+			{
+				case 'd':
+					if (canContinue)
+					{
+						p_player->resetPLayer();	// Reset player
+						loadNextLevel();
+						return;
+					}
+					break;
+				case 'c':
+					return;
+					break;
+				case 'r':
+					p_player->resetPLayer();	// Reset player
+					
+					delete p_world;				// Delete current world
+					p_world = new World(g_levels[p_currentLevelIndex]);	// Create same world again
+					parse_cells();
+					break;
+				default:
+					continue;
+					break;
+			}
+			return;
+		}
 	}
 
 	/****************************************************************
@@ -950,7 +1110,7 @@ public:
 			useFlashLight(RIGHT);
 			break;
 		case 'r':	// Reset level
-			resetGame();
+			exit();
 			break;
 		default:
 			break;
@@ -979,7 +1139,7 @@ public:
 		system("cls");
 		cout << "PLAYER:" << endl << "Health:\t" << p_player->getHealth() << '%' << "\tOxygen : " << p_player->getOxygen() << endl;
 		cout << "Battery: " << p_player->getBattery() << '%' << endl;
-		cout << "Coins: " << getAmount(coin_cell) << " / " << p_startCoinAmount << "\tScore: " << g_gameController->getScore() << " pts" << endl;
+		cout << "Coins: " << getAmount(coin_cell) << " / " << p_startCoinAmount << "\tScore: " << p_player->GetScore() << " pts" << endl;
 		Vector2 location = p_player->GetPosition();
 		cout << "Player coordinates: x: " << location.x << " y: " << location.y << endl;
 		cout << p_world->printMap() << endl;
@@ -1011,6 +1171,10 @@ public:
  ****************************************************/
 int main(void)
 {	
+#ifdef _WIN32 || _WIN64
+	SetConsoleOutputCP(CP_UTF8);
+#endif
+
 	while (true)
 	{
 		start_splash_screen();
@@ -1032,7 +1196,11 @@ int main(void)
 				break;
 			}
 			input = '\0'; // make sure input resetted each cycle
-			if (0 > read_input(&input)) break; // exit loop in case input reader returns negative (e.g. user selected "quit")
+			//if (0 > read_input(&input)) break; // exit loop in case input reader returns negative (e.g. user selected "quit")
+			if (read_input(&input) == -2)
+			{
+				g_gameController->exit();
+			}
 			g_gameController->update_state(input);
 			g_gameController->run();	// Update game state
 			g_gameController->render_screen();
@@ -1055,78 +1223,6 @@ int main(void)
 		system("pause");
 		return 0;
 	}
-}
-
-/****************************************************************
- *
- * FUNCTION load_level
- *
- * Open a map file and load level map from it.
- * First weekly home assignment is to be implemented mostly here.
- *
- * **************************************************************/
-char** load_level(string filepath)
-{
-	// steps in short:
-	// 1) locate, check and open file, if failure, return value indicating error (and check on the calling side)
-	// 2) read first row, count number of characters. Assuming all maps are rectangular, use this information
-	//    to memory allocation of global "map" (char ** map) pointer.
-	//    Assuming first row contains N characters, then you need to allocate 2D table/array of dimensions N x N
-	//    -> in practice first allocate to "map" an N-long array of (char *) pointers
-	//        and then within a loop allocate an N-long array of chars to each of the previous entries
-	//           -> as a result "map" is a pointer to pointer corresponding a 2D-array sized [N][N]
-	//              and it's each "slot" can be referred to using syntax: map[x][y], each capable of storing a char.
-	// 3) close file
-	// 4) return with success value (e.g. zero when OK, negative if error)
-	// [  5) outside this function, remember to free() allocated memory eventually ]
-	ifstream loaded_map(filepath);
-	size_t rows, cols;
-	//If file not found
-	if (!loaded_map)
-	{
-		cout << "Map file not found" << endl;
-		return false;
-	}
-	if (loaded_map.is_open())
-	{
-		string line;
-		getline(loaded_map, line);	// Read first line
-		cols = line.length();		// Get the size of the line
-		if (cols == 0)
-			return false;
-		rows = 1;
-		map = new char* [cols];		//Assuming map is square
-		for(int i = 0; i < cols; i++)	// Allocates map array and fills with data from the file
-		{
-			/*size_t p_pos = line.find_first_of("P");
-			if (p_pos != -1)	//Found player -> Get coordinates
-			{
-				player_data.x = p_pos;
-				player_data.y = i;
-			}*/
-			map[i] = new char[cols +1]; 
-			for (int j = 0; j < cols; j++)
-			{
-				map[i][j] = line[j];
-			}
-			map[i][cols] = '\0';
-			if (loaded_map.eof())
-				break;
-			//Read new line
-			getline(loaded_map, line);
-			rows++;
-		}
-		/*cout << "Loaded map:" << endl;
-		for (int i = 0; i < cols; i++)
-		{
-			cout << map[i] << endl;
-		}
-		cout << "Player is at: x: " << player_data.x << " y: " << player_data.y << endl;
-		*/
-		map_x = cols;
-		map_y = rows;
-	}
-	return true;
 }
 
 
@@ -1172,7 +1268,7 @@ bool screenLevelFinished()
 	char input;
 	system("cls");
 	cout << "\tLEVEL FINISHED!" << endl;
-	cout << "\tScore: " << g_gameController->getScore() << endl;
+	cout << "\tScore: " << g_gameController->GetScore() << endl;
 	while (true)
 	{
 		cout << "\tPress enter to continue" << endl;
@@ -1188,6 +1284,7 @@ bool screenLevelFinished()
 }
 
 
+
 /****************************************************************
  *
  * FUNCTION start_splash_screen
@@ -1198,8 +1295,22 @@ bool screenLevelFinished()
 void start_splash_screen(void)
 {
 	/* this function to display any title information at startup, may include instructions or fancy ASCII-graphics */
-	cout << endl << "WELCOME to epic Holy Diver v0.01" << endl;
-	cout << "Enter commands and enjoy! (press q to quit at all times)" << endl << endl;
+	cout << endl << "WELCOME to epic Holy Diver v." << VERSION << endl;
+	cout << "Enter commands and enjoy!" << endl << endl;
+	cout << "After each command press Enter key" << endl;
+	cout << "Guide:" << endl;
+	cout << "Movement:" << endl << endl;
+	cout << "\tW" << u8"\u2191" << endl;
+	cout << u8"\u2190" << "A\t\tD" << u8"\u2192" << endl;
+	cout << "\tS" << u8"\u2193" << endl << endl;
+	cout << "Flashlight:" << endl << endl;
+	cout << "\tI" << u8"\u2191" << endl;
+	cout << u8"\u2190" << "J\t\tL" << u8"\u2192" << endl;
+	cout << "\tK" << u8"\u2193" << endl << endl;
+
+	cout << "Commands:" << endl;
+	cout << "Q: Quit game" << endl;
+	cout << "R: Retry game" << endl;
 	//cin.ignore();
 }
 
@@ -1222,15 +1333,13 @@ bool startup_routines()
 	{
 		levelName = g_levels[0];
 	}
-	if (!load_level(levelName))
-	{
-		cout << "Error loading level" << endl;
-		return false;
-	}
-	//Init world
-	World* world = new World(map);
-	// Add GameController
-	g_gameController = new GameController(world);
+	World* world = new World(levelName);
+
+	// Add GameController if not yet made
+	if (g_gameController == nullptr)
+		g_gameController = new GameController(world);
+	else
+		g_gameController->SetWorld(world);
 	// Add player
 	g_gameController->addPlayer(player_data);
 	//Add enemies and items to the world
@@ -1251,18 +1360,8 @@ bool startup_routines()
 void quit_routines(void)
 {
 
-	// (*) ... the memory should be free'ed here at latest.
-	delete_map();
+	// (*) ... the memory should be free'ed here at latest
 	delete g_gameController;
 	cout << endl << "BYE! Welcome back soon." << endl;
-}
-
-void delete_map(void)
-{
-	for (size_t i = 0; i < map_y; ++i)
-	{
-		delete[] map[i];
-	}
-	delete[] map;
 }
 
