@@ -18,6 +18,7 @@
 #include <fstream>
 #include <Windows.h>
 #include <vector>
+#include <memory>
 
 using namespace std;
 
@@ -51,14 +52,9 @@ class Item;
 void start_splash_screen(void);
 bool startup_routines();
 void quit_routines(void);
-//World* load_level(string filepath); // a routine to load a level map from a file
 int read_input(char*);
-//void update_state(char);  // assuming only one input char (key press) at most at a time ("turn-based" execution flow)
-//void render_screen(void);
-//void delete_map(void);
+
 void gameOver(void);
-//void resetGame(void);
-//void parse_cells(void);
 bool screenLevelFinished(void);
 
 
@@ -66,8 +62,6 @@ bool screenLevelFinished(void);
 /****************************************************/
 // global variables:
 /****************************************************/
-//char** map;// pointer pointer equals to array of arrays = 2-dimensional array of chars
-//size_t map_x, map_y;
 GameController* g_gameController = nullptr;
 
 // above is virtually identical, as a variable, compared to for example:
@@ -225,11 +219,16 @@ public:
 	{
 		// Constructor
 		load_level(filename);	// Load level from file
-		p_playerMap = new char* [p_map_x];	// Allocate memory for player map
-		initPlayerMap();
+		if (p_map != nullptr)
+		{
+			p_playerMap = new char* [p_map_x];	// Allocate memory for player map
+			initPlayerMap();
+		}
 	}
 	~World()
 	{
+		if (p_map == nullptr)
+			return;
 		// Destructor
 		for (int i = 0; i < p_map_x; i++)
 		{
@@ -239,14 +238,22 @@ public:
 	}
 	void setMap(char** mapSource, Vector2 size)
 	{
+		if (mapSource == nullptr)
+			return;
 		p_map = mapSource;	// Set map
 		p_map_x = size.x;			// Set map width
 		p_map_y = size.y;			// Set map height
 		p_playerMap = new char* [p_map_x];	// Allocate memory for player map
 		initPlayerMap();	// Initialize player map
 	}
+	bool isMapValid()
+	{
+		return p_map != nullptr;
+	}
 	void delete_map(void)
 	{
+		if (p_map != nullptr)
+			return;
 		for (size_t i = 0; i < p_map_y; ++i)
 		{
 			delete[] p_map[i];
@@ -259,6 +266,8 @@ public:
 	}
 	string printMap()
 	{
+		if (p_map == nullptr)
+			return "";
 		string map;
 		for (int i = 0; i < p_map_x; i++)
 		{
@@ -269,7 +278,11 @@ public:
 				else if (p_map[i][j] == 'x')	// If cell is a wall
 					map += 'x';					// Print wall
 				/*else if (p_map[i][j] == 'M')  // For debug show enemies
-					map += 'M';*/
+					map += 'M';
+				else if (p_map[i][j] == 'm')	// For debug show enemies
+					map += 'm';
+				else if (p_map[i][j] == 'c')	// For debug show coins
+					map += 'C';*/
 				else if (p_playerMap[i][j] == 1)// If player can see the cell
 					map += p_map[i][j];			// Print cell
 				else							// If player can see the cell
@@ -287,6 +300,8 @@ public:
 
 	bool canMoveTo(Vector2 location)
 	{
+		if (p_map == nullptr)
+			return false;
 		// Check if location can be moved into
 		if (location.x < 0 || location.x >= p_map_x || location.y < 0 || location.y >= p_map_y)
 			return false;	// Out of bounds
@@ -312,11 +327,15 @@ public:
 	}
 	char getCell(Vector2 position)
 	{
+		if (p_map == nullptr)
+			return 0;
 		return p_map[position.y][position.x];
 	}
 
 	void putOnMap(Vector2 position, Map_CellTypes item)
 	{
+		if (p_map == nullptr)
+			return;
 		char p_item = 'o';
 		// Put thing on map
 		switch (item)
@@ -370,9 +389,11 @@ public:
 		{
 			cout << "Map file not found" << endl;
 			p_map = nullptr;
+			return;
 		}
 		if (loaded_map.is_open())
 		{
+			cout << "Map file found. Opening..." << endl;
 			string line;
 			getline(loaded_map, line);	// Read first line
 			p_map_x = line.length();		// Get the size of the line
@@ -394,17 +415,8 @@ public:
 				getline(loaded_map, line);
 				p_map_y++;
 			}
-			/*cout << "Loaded map:" << endl;
-			for (int i = 0; i < cols; i++)
-			{
-				cout << map[i] << endl;
-			}
-			cout << "Player is at: x: " << player_data.x << " y: " << player_data.y << endl;
-			*/
-
 		}
 	}
-
 };
 
 class Character
@@ -498,7 +510,7 @@ public:
 			p_oxygen = 0;
 			p_lives = 0;
 			p_world = nullptr;	// Initialize world to null
-
+			p_score = 0;
 		}
 		PlayerClass(Player player_data, World* world, int maxBattery)
 		{
@@ -511,6 +523,7 @@ public:
 			p_batterySOC = maxBattery;
 			p_world = world;	// Set world
 			p_cellType = player_cell;
+			p_score = 0;
 		}
 
 		~PlayerClass()
@@ -673,6 +686,11 @@ class Enemy:public Character
 			isActive = true;	// Set active
 		}
 
+		bool getActive()
+		{
+			return isActive;
+		}
+
 		void getDamage(int amount)
 		{
 			// Player hurts enemy
@@ -695,9 +713,10 @@ public:
 	{
 		//Destructor
 	}
-	void move()
+	void move(Vector2 movement = Vector2::one()) override
 	{
 		// Do not move
+		p_world->putOnMap(p_position, enemy_cell);	// Put enemy on map
 	}
 };
 
@@ -733,10 +752,6 @@ class Item
 		{
 			return position;
 		}
-		/*void putOnMap(World& map)
-		{
-			// Place item on map
-		}*/
 };
 
 class GameController
@@ -807,7 +822,11 @@ public:
 	void addEnemy(Enemy* enemy)
 	{
 		p_enemies.push_back(enemy);	// Add enemy to the list
-		//p_world->putOnMap(enemy->getPosition(), enemy_cell);	// Put enemy on map
+	}
+
+	void addEnemy(IdleEnemy* enemy)
+	{
+		p_enemies.push_back(enemy);
 	}
 
 	int getAmount(Map_CellTypes type)
@@ -846,9 +865,10 @@ public:
 
 	void updateEnemies()
 	{
-		for (Enemy* enemy : p_enemies)
+		for (const auto& enemy : p_enemies)
 		{
-			enemy->move(Vector2::one()); // Move enemy by vector one. Indicating random movement
+			if(enemy->getActive())
+				enemy->move(Vector2::one()); // Move enemy by vector one. Indicating random movement
 		}
 	}
 	
@@ -899,7 +919,7 @@ public:
 			return;
 		Vector2 lightCellPos = p_player->GetPosition() + Character::getMovementVector(direction);
 		p_world->showCell(lightCellPos);	// Show cell to player
-		for (Enemy* enemy : p_enemies)		//Activate enemy if player sees it
+		for (auto enemy : p_enemies)		//Activate enemy if player sees it
 		{
 			if (enemy->GetPosition() == lightCellPos)	// Only 1 enemy can be in one place so if found -> return
 			{
@@ -914,31 +934,32 @@ public:
 		return p_player->GetScore();
 	}
 	
+
+	/****************************************************************
+	*
+	* METHOD CheckPlayerAlive()
+	*
+	* Checks if player has found all coins
+	*
+	* **************************************************************/
 	void CheckPlayerAlive()
 	{
 		if (p_player->isAlive())
 			return;
-		while (true)
+		while (true)	// Player is dead
 		{
-			system("cls");
-			cout << "\tGAME OVER" << endl << endl;
-			cout << "Your final score: " << p_player->GetScore() << endl << endl;
-			cout << "Press Enter key to restart game" << endl;
-			cout << "Press Q to quit game" << endl;
-			char input;
-			if (read_input(&input) < 0)
-			{
-				gameRunning = false;
+			if (gameOverScreen()) // If valid choice has been given
 				return;
-			}
-			else if (input == '\n')
-			{
-				ResetGame();
-				return;
-			}
 		}
 	}
 
+	/****************************************************************
+	*
+	* METHOD CheckLevelFinished()
+	*
+	* Checks if player has found all coins
+	*
+	* **************************************************************/
 	bool CheckLevelFinished()
 	{
 		if (getAmount(coin_cell) <= 0)
@@ -946,6 +967,13 @@ public:
 		return false;
 	}
 
+	/****************************************************************
+	*
+	* METHOD loadNextLevel()
+	*
+	* Loads the map file
+	*
+	* **************************************************************/
 	void loadNextLevel()
 	{
 		string levelName;
@@ -964,14 +992,22 @@ public:
 		render_screen();
 	}
 	
+	/****************************************************************
+	*
+	* METHOD ResetGame()
+	*
+	* Starts the whole game again
+	*
+	* **************************************************************/
 	void ResetGame()
 	{
 		ClearMemory();
 		startup_routines();
 	}
+
 	/****************************************************************
 	 *
-	 * FUNCTION parse_enemies()
+	 * METHOD parse_enemies()
 	 *
 	 * function finds enemies on maps and adds them to the world
 	 *
@@ -992,24 +1028,19 @@ public:
 				switch (p_world->getCell(pos))
 				{
 				case 'm':	// Immobile enemy
-					p_idleEnemy = new IdleEnemy(pos, p_world);
-					addEnemy(p_idleEnemy);
+					addEnemy(new IdleEnemy(pos, p_world));
 					break;
 				case 'M':	// Mobile enemy
-					p_enemy = new Enemy(pos, p_world);
-					addEnemy(p_enemy);
+					addEnemy(new Enemy(pos, p_world));
 					break;
 				case 'b':	// Battery
-					p_item = new Item(pos, battery_cell, BATTERY_POINTS);
-					addItem(p_item);
+					addItem(new Item(pos, battery_cell, BATTERY_POINTS));
 					break;
 				case 'O':	// Oxygen
-					p_item = new Item(pos, oxygen_cell, OXYGEN_POINTS);
-					addItem(p_item);
+					addItem(new Item(pos, oxygen_cell, OXYGEN_POINTS));
 					break;
 				case 'c':	// Coin
-					p_item = new Item(pos, coin_cell, COIN_POINTS);
-					addItem(p_item);
+					addItem(new Item(pos, coin_cell, COIN_POINTS));
 					break;
 				case 'P':
 					p_player->setPosition(pos);
@@ -1022,14 +1053,21 @@ public:
 		}
 	}
 
+
+	/***************************************************************
+	* 
+	* METHOD exit()
+	* Displays the pause menu and handles user input for pausing, retrying, continuing, or moving to the next level.
+    *
+	* **************************************************************/
 	void exit()
 	{
 		while (true)
 		{
 			system("cls");
-			cout << "\tExit" << endl;
+			cout << "\tPause menu" << endl;
 			int coins = getAmount(coin_cell);
-			cout << "You found " << coins << " coins out of " << p_startCoinAmount << endl;
+			cout << "You found " << p_startCoinAmount - coins << " coins out of " << p_startCoinAmount << endl;
 			cout << "Press:" << endl;
 			bool canContinue = (float)coins / (float)p_startCoinAmount < 0.5;
 			if (canContinue)
@@ -1126,12 +1164,12 @@ public:
 	}
 
 	/*****************************************************************
- *
- * FUNCTION render_screen
- *
- * this function prints out all visuals of the game (typically after each time game state updated)
- *
- * **************************************************************/
+	 *
+	 * METHOD render_screen
+	 *
+	 * this function prints out all visuals of the game (typically after each time game state updated)
+	 *
+	 * **************************************************************/
 	void render_screen(void)
 	{
 		if (!gameRunning)
@@ -1161,6 +1199,26 @@ public:
 			cout << "Found an item: " << type << endl;
 	}
 
+	bool gameOverScreen()
+	{
+		system("cls");
+		cout << "\tGAME OVER" << endl << endl;
+		cout << "Your final score: " << p_player->GetScore() << endl << endl;
+		cout << "Press Enter key to restart game" << endl;
+		cout << "Press Q to quit game" << endl;
+		char input;
+		if (read_input(&input) < 0)
+		{
+			gameRunning = false;
+			return true;
+		}
+		else if (input == '\n')
+		{
+			ResetGame();
+			return true;
+		}
+		return false;
+	}
 };
 
 /****************************************************************
@@ -1243,7 +1301,8 @@ int read_input(char* input)
 		return -1; // failure
 	}
 	cout << endl;  //new line to reset output/input
-	cin.ignore();  //clear cin to avoid messing up following inputs
+	if(*input != '\n')	// So that enter gets detected correctly
+		cin.ignore();  //clear cin to avoid messing up following inputs
 	if (*input == 'q') return -2; // quitting game...
 	return 0; // default return, no errors
 }
@@ -1326,15 +1385,21 @@ void start_splash_screen(void)
  * **************************************************************/
 bool startup_routines()
 {
-	cout << "Name of the level file (default go to level 1): ";
-	string levelName;
-	getline(cin, levelName);
-	if (levelName.empty())
+	World* world = nullptr;
+	while (true)
 	{
-		levelName = g_levels[0];
+		cout << "Name of the level file (default go to level 1): ";
+		string levelName;
+		getline(cin, levelName);
+		if (levelName.empty())
+		{
+			levelName = g_levels[0];
+		}
+		world = new World(levelName);
+		if (world->isMapValid())
+			break;
+		delete world;
 	}
-	World* world = new World(levelName);
-
 	// Add GameController if not yet made
 	if (g_gameController == nullptr)
 		g_gameController = new GameController(world);
@@ -1349,6 +1414,12 @@ bool startup_routines()
 	// For example if memory allocated here... (*)
 }
 
+void mapNotFound()
+{
+	system("cls");
+	cout << "Map not found! Try again" << endl;
+	return;
+}
 
 /****************************************************************
  *
