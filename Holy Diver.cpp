@@ -189,6 +189,12 @@ class Vector2
 
 };
 
+/*******************************************************
+* CLASS SCOREMANAGER								   *
+*													   *
+* Manages the high score and name of the player		   *
+* Saves and loads the score from a file				   *
+********************************************************/
 class ScoreManager
 {
 private:
