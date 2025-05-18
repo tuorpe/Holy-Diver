@@ -26,6 +26,7 @@ using namespace std;
 // Game settings:
 /****************************************************/
 const string VERSION = "0.02";
+const string SCORE_FILE = "hallOfFame.dat";
 const int MAX_BATTERY = 100;
 const int MAX_HEALTH = 100;
 const int MAX_OXYGEN = 100;
@@ -46,6 +47,7 @@ class World;
 class PlayerClass;
 class GameController;
 class Item;
+class ScoreManager;
 /****************************************************/
 // declaring functions:
 /****************************************************/
@@ -187,6 +189,80 @@ class Vector2
 
 };
 
+class ScoreManager
+{
+private:
+	string p_filename;
+	int p_highScore;
+	string p_highScoreName;
+public:
+	ScoreManager(string filename)
+	{
+		// Constructor
+		p_filename = filename;
+		loadScore();	// Load score from file
+	}
+	~ScoreManager()
+	{
+		// Destructor
+	}
+	void saveScore(int score, string name)
+	{
+		if (p_filename.empty())
+			return;
+		ofstream file(p_filename);
+		if (file.is_open())
+		{
+			file << "score " << score << endl;
+			file << "name " << name << endl;
+			file.close();
+		}
+		else
+			cout << "Unable to open file";
+	}
+	bool loadScore()
+	{
+		ifstream file(p_filename);
+		int score = 0;
+		if (file.is_open())
+		{
+			string line;
+			string type;
+			string value;
+			size_t curPos;
+			while (getline(file, line))	// Read lines until EOF)
+			{
+				curPos = 0;
+				curPos = line.find_first_of(' ', curPos);	// Find first space
+				type = line.substr(0, curPos);	// Get type
+				value = line.substr(curPos+1, line.npos);	// Get value
+				if (type == "score")	// If type is score
+				{
+					p_highScore = stoi(value);	// Convert value to int
+				}
+				else if (type == "name")	// If type is name
+				{
+					p_highScoreName = value;	// Set name
+				}
+			}
+			file.close();
+			return true;	// File loaded successfully
+		}
+		else
+			return false;	// File not found
+	}
+
+	int getHighScore()
+	{
+		return p_highScore;	// Get high score
+	}
+
+	string getHighScoreName()
+	{
+		return p_highScoreName;	// Get high score name
+	}
+};
+
 class World
 {
 private:
@@ -280,9 +356,9 @@ public:
 				/*else if (p_map[i][j] == 'M')  // For debug show enemies
 					map += 'M';
 				else if (p_map[i][j] == 'm')	// For debug show enemies
-					map += 'm';
+					map += 'm';*/
 				else if (p_map[i][j] == 'c')	// For debug show coins
-					map += 'C';*/
+					map += 'C';
 				else if (p_playerMap[i][j] == 1)// If player can see the cell
 					map += p_map[i][j];			// Print cell
 				else							// If player can see the cell
@@ -764,6 +840,7 @@ private:
 	Map_CellTypes p_foundItem;
 	int p_currentLevelIndex;
 	int p_startCoinAmount;
+	ScoreManager* p_scoreManager;
 	template<typename T> 
 	bool isAtPlayerPosition(const T& item)
 	{
@@ -779,6 +856,7 @@ public:
 		p_foundItem = empty_cell;	// Initialize found item
 		p_startCoinAmount = 0;	// Initialize start coin amount
 		p_currentLevelIndex = 0;	// Initialize current level index
+		p_scoreManager = new ScoreManager(SCORE_FILE);	// Initialize score manager
 	}
 
 	GameController(World* world)
@@ -789,6 +867,7 @@ public:
 		p_foundItem = empty_cell;	// Initialize found item
 		p_startCoinAmount = 0;	// Initialize start coin amount
 		p_currentLevelIndex = 0;	// Initialize current level index
+		p_scoreManager = new ScoreManager(SCORE_FILE);	// Initialize score manager
 	}
 
 	~GameController()
@@ -817,6 +896,7 @@ public:
 		p_items.clear();
 		delete p_player;	// Free memory for player
 		delete p_world;
+		delete p_scoreManager;	// Free memory for score manager
 
 	}
 	void addEnemy(Enemy* enemy)
@@ -983,6 +1063,7 @@ public:
 		p_currentLevelIndex++;
 		if (p_currentLevelIndex >= sizeof(g_levels) / sizeof(g_levels[0]))
 		{
+			p_scoreManager->saveScore(p_player->GetScore(), "Player");	// Save score
 			p_currentLevelIndex = 0;
 		}
 		levelName = g_levels[p_currentLevelIndex];
@@ -1221,6 +1302,7 @@ public:
 	}
 };
 
+
 /****************************************************************
  *
  * MAIN
@@ -1355,6 +1437,13 @@ void start_splash_screen(void)
 {
 	/* this function to display any title information at startup, may include instructions or fancy ASCII-graphics */
 	cout << endl << "WELCOME to epic Holy Diver v." << VERSION << endl;
+	ScoreManager* scoreManager = new ScoreManager(SCORE_FILE);
+	if (scoreManager->loadScore())
+	{
+		cout << "\tTop score: " << endl; 
+		cout << "\t" << scoreManager->getHighScoreName() << ": " << scoreManager->getHighScore() << " points" << endl;
+	}
+	delete scoreManager;
 	cout << "Enter commands and enjoy!" << endl << endl;
 	cout << "After each command press Enter key" << endl;
 	cout << "Guide:" << endl;
